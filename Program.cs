@@ -14,13 +14,10 @@ namespace BoardMemberReportGenerator
         // Logger configuration
         private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
-        // Configuration
-        private static readonly string overviewFilePath = @"S:\ITD\Kei\overview_file_template\董事會成員定額紀錄 2024.xlsx";
-        private static readonly string outputDirectory = @"S:\ITD\Kei\board_member_reports";
-        private static readonly string year = "2024/25";
-
         // Constants
-        private const string OverviewSheetName = "董事會成員";
+        private const string ProgramSponsorshipSheetName = "節目贊助";
+        private const string ProgramQuotaSheetName = "節目定額";
+        private const string TicketQuotaSheetName = "購劵定額";
         private const string BoardMemberIdentifierPrefix = "編號";
 
         static void Main(string[] args)
@@ -34,9 +31,9 @@ namespace BoardMemberReportGenerator
                 Console.WriteLine("============================");
 
                 // Get input parameters
-                // string overviewFilePath = GetUserInput("Enter the path to the overview file:", @"S:\ITD\Kei\overview_file_template\董事會成員定額紀錄 2024.xlsx");
-                // string outputDirectory = GetUserInput("Enter the output directory for reports:", @"S:\ITD\Kei\board_member_reports");
-                // string year = GetUserInput("Enter the year for reports (e.g., 2024/25):", "2024/25");
+                string overviewFilePath = GetUserInput("Enter the path to the overview file:", @"S:\ITD\Kei\overview_file_template\董事會成員定額紀錄 2024.xlsx");
+                string outputDirectory = GetUserInput("Enter the output directory for reports:", @"S:\ITD\Kei\board_member_reports");
+                string year = GetUserInput("Enter the year for reports (e.g., 2024/25):", "2024/25");
 
                 // Ensure output directory exists
                 if (!Directory.Exists(outputDirectory))
@@ -85,13 +82,13 @@ namespace BoardMemberReportGenerator
             LogManager.Configuration = config;
         }
 
-        // private static string GetUserInput(string prompt, string defaultValue)
-        // {
-        //     Console.WriteLine(prompt);
-        //     Console.Write($"[{defaultValue}]: ");
-        //     string input = Console.ReadLine();
-        //     return string.IsNullOrWhiteSpace(input) ? defaultValue : input;
-        // }
+        private static string GetUserInput(string prompt, string defaultValue)
+        {
+            Console.WriteLine(prompt);
+            Console.Write($"[{defaultValue}]: ");
+            string input = Console.ReadLine();
+            return string.IsNullOrWhiteSpace(input) ? defaultValue : input;
+        }
 
         private static void GenerateAllBoardMemberReports(string overviewFilePath, string outputDirectory, string year)
         {
@@ -101,20 +98,51 @@ namespace BoardMemberReportGenerator
             using (FileStream fs = new FileStream(overviewFilePath, FileMode.Open, FileAccess.Read))
             {
                 IWorkbook overviewWorkbook = WorkbookFactory.Create(fs);
-                ISheet overviewSheet = overviewWorkbook.GetSheet(OverviewSheetName);
+                
+                // Get all sheets
+                ISheet sponsorshipSheet = overviewWorkbook.GetSheet(ProgramSponsorshipSheetName);
+                ISheet programQuotaSheet = overviewWorkbook.GetSheet(ProgramQuotaSheetName);
+                ISheet ticketQuotaSheet = overviewWorkbook.GetSheet(TicketQuotaSheetName);
 
-                if (overviewSheet == null)
+                if (sponsorshipSheet == null)
                 {
-                    throw new Exception($"Sheet '{OverviewSheetName}' not found in overview file");
+                    throw new Exception($"Sheet '{ProgramSponsorshipSheetName}' not found in overview file");
+                }
+                if (programQuotaSheet == null)
+                {
+                    throw new Exception($"Sheet '{ProgramQuotaSheetName}' not found in overview file");
+                }
+                if (ticketQuotaSheet == null)
+                {
+                    throw new Exception($"Sheet '{TicketQuotaSheetName}' not found in overview file");
                 }
 
-                // Get all board members
-                Dictionary<string, int> boardMembers = GetBoardMembers(overviewSheet);
+                // Find board member identifier cells in each sheet
+                CellReference sponsorshipBoardMemberCell = FindCellWithText(sponsorshipSheet, BoardMemberIdentifierPrefix);
+                CellReference programQuotaBoardMemberCell = FindCellWithText(programQuotaSheet, BoardMemberIdentifierPrefix);
+                CellReference ticketQuotaBoardMemberCell = FindCellWithText(ticketQuotaSheet, BoardMemberIdentifierPrefix);
+
+                if (sponsorshipBoardMemberCell == null || programQuotaBoardMemberCell == null || ticketQuotaBoardMemberCell == null)
+                {
+                    throw new Exception($"Board member identifier cell with text '{BoardMemberIdentifierPrefix}' not found in one or more sheets");
+                }
+
+                // Get all board members from the sponsorship sheet
+                Dictionary<string, int> boardMembers = GetBoardMembers(sponsorshipSheet, sponsorshipBoardMemberCell);
                 Logger.Info($"Found {boardMembers.Count} board members in overview file");
 
-                // Get all events
-                Dictionary<string, int> events = GetEvents(overviewSheet);
-                Logger.Info($"Found {events.Count} events in overview file");
+                // Get all events from each sheet
+                Dictionary<string, int> sponsorshipEvents = GetEvents(sponsorshipSheet, sponsorshipBoardMemberCell);
+                Dictionary<string, int> programQuotaEvents = GetEvents(programQuotaSheet, programQuotaBoardMemberCell);
+                Dictionary<string, int> ticketQuotaEvents = GetEvents(ticketQuotaSheet, ticketQuotaBoardMemberCell);
+
+                // Combine all unique events
+                HashSet<string> allEventNames = new HashSet<string>();
+                foreach (var eventName in sponsorshipEvents.Keys) allEventNames.Add(eventName);
+                foreach (var eventName in programQuotaEvents.Keys) allEventNames.Add(eventName);
+                foreach (var eventName in ticketQuotaEvents.Keys) allEventNames.Add(eventName);
+
+                Logger.Info($"Found {allEventNames.Count} unique events across all sheets");
 
                 // Generate report for each board member
                 int successCount = 0;
@@ -122,7 +150,11 @@ namespace BoardMemberReportGenerator
                 {
                     try
                     {
-                        ExportBoardMemberReport(overviewSheet, outputDirectory, boardMember.Key, boardMember.Value, events, year);
+                        ExportBoardMemberReport(
+                            sponsorshipSheet, programQuotaSheet, ticketQuotaSheet,
+                            sponsorshipBoardMemberCell, programQuotaBoardMemberCell, ticketQuotaBoardMemberCell,
+                            sponsorshipEvents, programQuotaEvents, ticketQuotaEvents,
+                            outputDirectory, boardMember.Key, boardMember.Value, allEventNames, year);
                         successCount++;
                     }
                     catch (Exception ex)
@@ -136,24 +168,17 @@ namespace BoardMemberReportGenerator
             }
         }
 
-        private static Dictionary<string, int> GetBoardMembers(ISheet overviewSheet)
+        private static Dictionary<string, int> GetBoardMembers(ISheet sheet, CellReference boardMemberCell)
         {
             Dictionary<string, int> boardMembers = new Dictionary<string, int>();
-            
-            // Find the board member identifier cell
-            CellReference boardMemberCell = FindCellWithText(overviewSheet, BoardMemberIdentifierPrefix);
-            if (boardMemberCell == null)
-            {
-                throw new Exception($"Board member identifier cell with text '{BoardMemberIdentifierPrefix}' not found");
-            }
             
             // Start from the row after the identifier
             int startRow = boardMemberCell.Row + 1;
             
             // Iterate through rows to find board members
-            for (int rowIndex = startRow; rowIndex <= overviewSheet.LastRowNum; rowIndex++)
+            for (int rowIndex = startRow; rowIndex <= sheet.LastRowNum; rowIndex++)
             {
-                IRow row = overviewSheet.GetRow(rowIndex);
+                IRow row = sheet.GetRow(rowIndex);
                 if (row == null) continue;
                 
                 ICell cell = row.GetCell(boardMemberCell.Col);
@@ -166,19 +191,12 @@ namespace BoardMemberReportGenerator
             return boardMembers;
         }
 
-        private static Dictionary<string, int> GetEvents(ISheet overviewSheet)
+        private static Dictionary<string, int> GetEvents(ISheet sheet, CellReference boardMemberCell)
         {
             Dictionary<string, int> events = new Dictionary<string, int>();
             
-            // Find the board member identifier cell to locate the header row
-            CellReference boardMemberCell = FindCellWithText(overviewSheet, BoardMemberIdentifierPrefix);
-            if (boardMemberCell == null)
-            {
-                throw new Exception($"Board member identifier cell with text '{BoardMemberIdentifierPrefix}' not found");
-            }
-            
             // Get the header row
-            IRow headerRow = overviewSheet.GetRow(boardMemberCell.Row);
+            IRow headerRow = sheet.GetRow(boardMemberCell.Row);
             if (headerRow == null) return events;
             
             // Start from column after the board member column
@@ -199,7 +217,7 @@ namespace BoardMemberReportGenerator
 
         private static CellReference FindCellWithText(ISheet sheet, string text)
         {
-            for (int rowIndex = 0; rowIndex <= sheet.LastRowNum; rowIndex++)
+            for (int rowIndex = 0; rowIndex <= Math.Min(20, sheet.LastRowNum); rowIndex++) // Limit search to first 20 rows
             {
                 IRow row = sheet.GetRow(rowIndex);
                 if (row == null) continue;
@@ -220,12 +238,10 @@ namespace BoardMemberReportGenerator
         }
 
         private static void ExportBoardMemberReport(
-            ISheet overviewSheet,
-            string outputDirectory,
-            string boardMemberName,
-            int boardMemberRow,
-            Dictionary<string, int> events,
-            string year)
+            ISheet sponsorshipSheet, ISheet programQuotaSheet, ISheet ticketQuotaSheet,
+            CellReference sponsorshipBoardMemberCell, CellReference programQuotaBoardMemberCell, CellReference ticketQuotaBoardMemberCell,
+            Dictionary<string, int> sponsorshipEvents, Dictionary<string, int> programQuotaEvents, Dictionary<string, int> ticketQuotaEvents,
+            string outputDirectory, string boardMemberName, int boardMemberRow, IEnumerable<string> allEventNames, string year)
         {
             Logger.Info($"Generating report for board member: {boardMemberName}");
             Console.WriteLine($"Generating report for: {boardMemberName}");
@@ -236,7 +252,11 @@ namespace BoardMemberReportGenerator
 
             // Extract event data for this board member
             List<EventData> boardMemberEvents = ExtractBoardMemberEventData(
-                overviewSheet, events, boardMemberRow);
+                sponsorshipSheet, programQuotaSheet, ticketQuotaSheet,
+                boardMemberRow, 
+                sponsorshipBoardMemberCell, programQuotaBoardMemberCell, ticketQuotaBoardMemberCell,
+                sponsorshipEvents, programQuotaEvents, ticketQuotaEvents,
+                allEventNames);
 
             // Create the report
             CreateReportHeader(reportWorkbook, reportSheet, boardMemberName, year);
@@ -266,69 +286,67 @@ namespace BoardMemberReportGenerator
         }
 
         private static List<EventData> ExtractBoardMemberEventData(
-            ISheet overviewSheet,
-            Dictionary<string, int> events,
-            int boardMemberRow)
+            ISheet sponsorshipSheet, ISheet programQuotaSheet, ISheet ticketQuotaSheet,
+            int boardMemberRow,
+            CellReference sponsorshipBoardMemberCell, CellReference programQuotaBoardMemberCell, CellReference ticketQuotaBoardMemberCell,
+            Dictionary<string, int> sponsorshipEvents, Dictionary<string, int> programQuotaEvents, Dictionary<string, int> ticketQuotaEvents,
+            IEnumerable<string> allEventNames)
         {
             List<EventData> eventDataList = new List<EventData>();
             
-            IRow boardMemberDataRow = overviewSheet.GetRow(boardMemberRow);
-            if (boardMemberDataRow == null) return eventDataList;
+            IRow sponsorshipRow = sponsorshipSheet.GetRow(boardMemberRow);
+            IRow programQuotaRow = programQuotaSheet.GetRow(boardMemberRow);
+            IRow ticketQuotaRow = ticketQuotaSheet.GetRow(boardMemberRow);
+            
+            if (sponsorshipRow == null || programQuotaRow == null || ticketQuotaRow == null)
+            {
+                Logger.Warn($"One or more data rows not found for board member at row {boardMemberRow}");
+                return eventDataList;
+            }
             
             int eventIndex = 1;
-            foreach (var eventEntry in events)
+            foreach (string eventName in allEventNames)
             {
-                string eventName = eventEntry.Key;
-                int eventColumn = eventEntry.Value;
-                
-                // Get the donation amount
-                ICell donationCell = boardMemberDataRow.GetCell(eventColumn);
-                double donationAmount = 0;
-                
-                if (donationCell != null)
+                // Get sponsorship amount
+                double sponsorshipAmount = 0;
+                if (sponsorshipEvents.ContainsKey(eventName))
                 {
-                    // Try to get numeric value or formula result
-                    if (donationCell.CellType == CellType.Numeric)
-                    {
-                        donationAmount = donationCell.NumericCellValue;
-                    }
-                    else if (donationCell.CellType == CellType.Formula)
-                    {
-                        try
-                        {
-                            donationAmount = donationCell.NumericCellValue;
-                        }
-                        catch
-                        {
-                            // If formula evaluation fails, try to parse the cached formula result
-                            string formulaResult = donationCell.ToString();
-                            double.TryParse(formulaResult, out donationAmount);
-                        }
-                    }
-                    else
-                    {
-                        // Try to parse string value
-                        string cellValue = donationCell.ToString();
-                        double.TryParse(cellValue, out donationAmount);
-                    }
+                    int sponsorshipCol = sponsorshipEvents[eventName];
+                    sponsorshipAmount = GetCellNumericValue(sponsorshipRow.GetCell(sponsorshipCol));
                 }
                 
-                // Only include events with non-zero donations
-                if (donationAmount > 0)
+                // Get program quota
+                double programQuota = 0;
+                if (programQuotaEvents.ContainsKey(eventName))
                 {
-                    // For this example, we'll set some sample values for ticket quotas
-                    // In a real application, these would come from the event files
-                    double ticketQuota = eventName.Contains("晚會") ? donationAmount * 0.24 : 0;
-                    
+                    int programQuotaCol = programQuotaEvents[eventName];
+                    programQuota = GetCellNumericValue(programQuotaRow.GetCell(programQuotaCol));
+                }
+                
+                // Get ticket quota
+                double ticketQuota = 0;
+                if (ticketQuotaEvents.ContainsKey(eventName))
+                {
+                    int ticketQuotaCol = ticketQuotaEvents[eventName];
+                    ticketQuota = GetCellNumericValue(ticketQuotaRow.GetCell(ticketQuotaCol));
+                }
+                
+                // Calculate total and receivable
+                double total = sponsorshipAmount;
+                double receivable = total - ticketQuota;
+                
+                // Only include events with non-zero values
+                if (sponsorshipAmount > 0 || programQuota > 0 || ticketQuota > 0)
+                {
                     EventData eventData = new EventData
                     {
                         Index = eventIndex++,
                         Name = eventName,
-                        ProgramSponsorship = donationAmount,
-                        Total = donationAmount,
-                        ProgramQuota = 0, // Sample value
-                        TicketQuota = ticketQuota, // Sample value
-                        Receivable = donationAmount - ticketQuota
+                        ProgramSponsorship = sponsorshipAmount,
+                        Total = total,
+                        ProgramQuota = programQuota,
+                        TicketQuota = ticketQuota,
+                        Receivable = receivable
                     };
                     
                     eventDataList.Add(eventData);
@@ -336,6 +354,44 @@ namespace BoardMemberReportGenerator
             }
             
             return eventDataList;
+        }
+
+        private static double GetCellNumericValue(ICell cell)
+        {
+            if (cell == null) return 0;
+            
+            try
+            {
+                switch (cell.CellType)
+                {
+                    case CellType.Numeric:
+                        return cell.NumericCellValue;
+                    case CellType.Formula:
+                        try
+                        {
+                            return cell.NumericCellValue;
+                        }
+                        catch
+                        {
+                            // If formula evaluation fails, try to parse the cached formula result
+                            string formulaResult = cell.ToString();
+                            if (double.TryParse(formulaResult, out double result))
+                                return result;
+                            return 0;
+                        }
+                    case CellType.String:
+                        if (double.TryParse(cell.StringCellValue, out double value))
+                            return value;
+                        return 0;
+                    default:
+                        return 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"Error getting numeric value from cell: {ex.Message}");
+                return 0;
+            }
         }
 
         private static void CreateReportHeader(
@@ -548,24 +604,6 @@ namespace BoardMemberReportGenerator
                     cell.CellStyle = newStyle;
                 }
             }
-        }
-
-        private static string GetBoardMemberId(string boardMemberName)
-        {
-            // Extract the ID from the board member name
-            // Format: "編號XX 姓名" or similar
-            if (boardMemberName.Contains(BoardMemberIdentifierPrefix))
-            {
-                int startIndex = boardMemberName.IndexOf(BoardMemberIdentifierPrefix) + BoardMemberIdentifierPrefix.Length;
-                int endIndex = boardMemberName.IndexOf(" ", startIndex);
-                
-                if (endIndex > startIndex)
-                {
-                    return boardMemberName.Substring(startIndex, endIndex - startIndex).Trim();
-                }
-            }
-            
-            return boardMemberName; // Return full name if ID not found
         }
     }
 
