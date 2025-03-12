@@ -14,6 +14,11 @@ namespace BoardMemberReportGenerator
         // Logger configuration
         private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
+        // Configuration
+        private static readonly string overviewFilePath = @"S:\ITD\Kei\overview_file_template\董事會成員定額紀錄 2024.xlsx";
+        private static readonly string outputDirectory = @"S:\ITD\Kei\board_member_reports";
+        private static readonly string year = "2024/25";
+
         // Constants
         private const string OverviewSheetName = "董事會成員";
         private const string BoardMemberIdentifierPrefix = "編號";
@@ -29,9 +34,9 @@ namespace BoardMemberReportGenerator
                 Console.WriteLine("============================");
 
                 // Get input parameters
-                string overviewFilePath = GetUserInput("Enter the path to the overview file:", @"S:\ITD\Kei\overview_file_template\董事會成員定額紀錄 2024.xlsx");
-                string outputDirectory = GetUserInput("Enter the output directory for reports:", @"S:\ITD\Kei\board_member_reports");
-                string year = GetUserInput("Enter the year for reports (e.g., 2024/25):", "2024/25");
+                // string overviewFilePath = GetUserInput("Enter the path to the overview file:", @"S:\ITD\Kei\overview_file_template\董事會成員定額紀錄 2024.xlsx");
+                // string outputDirectory = GetUserInput("Enter the output directory for reports:", @"S:\ITD\Kei\board_member_reports");
+                // string year = GetUserInput("Enter the year for reports (e.g., 2024/25):", "2024/25");
 
                 // Ensure output directory exists
                 if (!Directory.Exists(outputDirectory))
@@ -80,13 +85,13 @@ namespace BoardMemberReportGenerator
             LogManager.Configuration = config;
         }
 
-        private static string GetUserInput(string prompt, string defaultValue)
-        {
-            Console.WriteLine(prompt);
-            Console.Write($"[{defaultValue}]: ");
-            string input = Console.ReadLine();
-            return string.IsNullOrWhiteSpace(input) ? defaultValue : input;
-        }
+        // private static string GetUserInput(string prompt, string defaultValue)
+        // {
+        //     Console.WriteLine(prompt);
+        //     Console.Write($"[{defaultValue}]: ");
+        //     string input = Console.ReadLine();
+        //     return string.IsNullOrWhiteSpace(input) ? defaultValue : input;
+        // }
 
         private static void GenerateAllBoardMemberReports(string overviewFilePath, string outputDirectory, string year)
         {
