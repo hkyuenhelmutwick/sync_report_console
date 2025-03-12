@@ -14,10 +14,15 @@ namespace BoardMemberReportGenerator
         // Logger configuration
         private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
+        // Configuration
+        private static readonly string overviewFilePath = @"S:\ITD\Kei\overview_file_template\董事會成員定額紀錄 2024.xlsx";
+        private static readonly string outputDirectory = @"S:\ITD\Kei\board_member_reports";
+        private static readonly string year = "2024/25";
+
         // Constants
         private const string ProgramSponsorshipSheetName = "節目贊助";
         private const string ProgramQuotaSheetName = "節目定額";
-        private const string TicketQuotaSheetName = "購劵定額";
+        private const string TicketQuotaSheetName = "購券定額";
         private const string BoardMemberIdentifierPrefix = "編號";
 
         static void Main(string[] args)
@@ -29,11 +34,6 @@ namespace BoardMemberReportGenerator
 
                 Console.WriteLine("Board Member Report Generator");
                 Console.WriteLine("============================");
-
-                // Get input parameters
-                string overviewFilePath = GetUserInput("Enter the path to the overview file:", @"S:\ITD\Kei\overview_file_template\董事會成員定額紀錄 2024.xlsx");
-                string outputDirectory = GetUserInput("Enter the output directory for reports:", @"S:\ITD\Kei\board_member_reports");
-                string year = GetUserInput("Enter the year for reports (e.g., 2024/25):", "2024/25");
 
                 // Ensure output directory exists
                 if (!Directory.Exists(outputDirectory))
@@ -217,7 +217,7 @@ namespace BoardMemberReportGenerator
 
         private static CellReference FindCellWithText(ISheet sheet, string text)
         {
-            for (int rowIndex = 0; rowIndex <= Math.Min(20, sheet.LastRowNum); rowIndex++) // Limit search to first 20 rows
+            for (int rowIndex = 0; rowIndex <= sheet.LastRowNum; rowIndex++)
             {
                 IRow row = sheet.GetRow(rowIndex);
                 if (row == null) continue;
@@ -225,9 +225,7 @@ namespace BoardMemberReportGenerator
                 for (int colIndex = 0; colIndex < row.LastCellNum; colIndex++)
                 {
                     ICell cell = row.GetCell(colIndex);
-                    if (cell == null || cell.CellType != CellType.String) continue;
-                    
-                    if (cell.StringCellValue.Contains(text))
+                    if (cell != null && cell.ToString().Replace("\r\n", string.Empty).Replace("\n", string.Empty) == text)
                     {
                         return new CellReference(rowIndex, colIndex);
                     }
@@ -236,6 +234,28 @@ namespace BoardMemberReportGenerator
             
             return null;
         }
+
+        // private static CellReference FindCellWithText(ISheet sheet, string text)
+        // {
+        //     for (int rowIndex = 0; rowIndex <= Math.Min(20, sheet.LastRowNum); rowIndex++) // Limit search to first 20 rows
+        //     {
+        //         IRow row = sheet.GetRow(rowIndex);
+        //         if (row == null) continue;
+                
+        //         for (int colIndex = 0; colIndex < row.LastCellNum; colIndex++)
+        //         {
+        //             ICell cell = row.GetCell(colIndex);
+        //             if (cell == null || cell.CellType != CellType.String) continue;
+                    
+        //             if (cell.StringCellValue.Contains(text))
+        //             {
+        //                 return new CellReference(rowIndex, colIndex);
+        //             }
+        //         }
+        //     }
+            
+        //     return null;
+        // }
 
         private static void ExportBoardMemberReport(
             ISheet sponsorshipSheet, ISheet programQuotaSheet, ISheet ticketQuotaSheet,
