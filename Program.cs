@@ -17,6 +17,7 @@ namespace BoardMemberReportGenerator
 
         // Configuration
         private static readonly string overviewFilePath = @"S:\ITD\Kei\overview_file_template\董事會成員定額紀錄 2024.xlsx";
+        private static string OverviewFilePath;
         private static readonly string outputDirectory = @"S:\ITD\Kei\board_member_reports";
         private static readonly string year = "2024/25";
 
@@ -89,6 +90,8 @@ namespace BoardMemberReportGenerator
 
         private static void GenerateAllBoardMemberReports(string overviewFilePath, string outputDirectory, string year)
         {
+            // Store the overview file path as a static variable for use in other methods
+            OverviewFilePath = overviewFilePath;
             Logger.Info($"Starting report generation from overview file: {overviewFilePath}");
 
             // Load the overview file
@@ -288,13 +291,14 @@ namespace BoardMemberReportGenerator
             IWorkbook reportWorkbook = new XSSFWorkbook();
             ISheet reportSheet = reportWorkbook.CreateSheet("Report");
 
-            // Extract event data for this board member
+            /// Extract event data for this board member, passing the overview file path
             List<EventData> boardMemberEvents = ExtractBoardMemberEventData(
                 sponsorshipSheet, programQuotaSheet, ticketQuotaSheet,
                 boardMemberRow, 
                 sponsorshipBoardMemberCell, programQuotaBoardMemberCell, ticketQuotaBoardMemberCell,
                 sponsorshipEvents, programQuotaEvents, ticketQuotaEvents,
-                allEventNames);
+                allEventNames,
+                OverviewFilePath);  // Add overview file path here
 
             // Create the report
             CreateReportHeader(reportWorkbook, reportSheet, boardMemberName, year);
@@ -328,7 +332,8 @@ namespace BoardMemberReportGenerator
             int boardMemberRow,
             CellReference sponsorshipBoardMemberCell, CellReference programQuotaBoardMemberCell, CellReference ticketQuotaBoardMemberCell,
             Dictionary<string, int> sponsorshipEvents, Dictionary<string, int> programQuotaEvents, Dictionary<string, int> ticketQuotaEvents,
-            IEnumerable<string> allEventNames)
+            IEnumerable<string> allEventNames,
+            string overviewFilePath)
         {
             List<EventData> eventDataList = new List<EventData>();
             
@@ -342,34 +347,72 @@ namespace BoardMemberReportGenerator
                 return eventDataList;
             }
             
+            // Get the full path of the overview file for external references
+            string fullOverviewPath = Path.GetFullPath(overviewFilePath);
+            string overviewDir = Path.GetDirectoryName(fullOverviewPath).Replace("\\", "/");
+            string overviewFileName = Path.GetFileName(fullOverviewPath);
+            
             int eventIndex = 1;
             foreach (string eventName in allEventNames)
             {
-                // Get sponsorship amount
                 double sponsorshipAmount = 0;
+                double programQuota = 0;
+                double ticketQuota = 0;
+                
+                string sponsorshipFormula = null;
+                string programQuotaFormula = null;
+                string ticketQuotaFormula = null;
+                
+                // Get sponsorship amount and formula
                 if (sponsorshipEvents.ContainsKey(eventName))
                 {
                     int sponsorshipCol = sponsorshipEvents[eventName];
-                    sponsorshipAmount = GetCellNumericValue(sponsorshipRow.GetCell(sponsorshipCol));
+                    ICell sponsorshipCell = sponsorshipRow.GetCell(sponsorshipCol);
+                    
+                    if (sponsorshipCell != null)
+                    {
+                        sponsorshipAmount = GetCellNumericValue(sponsorshipCell);
+                        
+                        // Create external reference formula to sponsorship sheet
+                        sponsorshipFormula = $"'{overviewDir}/[{overviewFileName}]{ProgramSponsorshipSheetName}'!" + 
+                            $"{CellReference.ConvertNumToColString(sponsorshipCol)}{boardMemberRow + 1}";
+                    }
                 }
                 
-                // Get program quota
-                double programQuota = 0;
+                // Get program quota and formula
                 if (programQuotaEvents.ContainsKey(eventName))
                 {
                     int programQuotaCol = programQuotaEvents[eventName];
-                    programQuota = GetCellNumericValue(programQuotaRow.GetCell(programQuotaCol));
+                    ICell programQuotaCell = programQuotaRow.GetCell(programQuotaCol);
+                    
+                    if (programQuotaCell != null)
+                    {
+                        programQuota = GetCellNumericValue(programQuotaCell);
+                        
+                        // Create external reference formula to program quota sheet
+                        programQuotaFormula = $"'{overviewDir}/[{overviewFileName}]{ProgramQuotaSheetName}'!" + 
+                            $"{CellReference.ConvertNumToColString(programQuotaCol)}{boardMemberRow + 1}";
+                    }
                 }
                 
-                // Get ticket quota
-                double ticketQuota = 0;
+                // Get ticket quota and formula
                 if (ticketQuotaEvents.ContainsKey(eventName))
                 {
                     int ticketQuotaCol = ticketQuotaEvents[eventName];
-                    ticketQuota = GetCellNumericValue(ticketQuotaRow.GetCell(ticketQuotaCol));
+                    ICell ticketQuotaCell = ticketQuotaRow.GetCell(ticketQuotaCol);
+                    
+                    if (ticketQuotaCell != null)
+                    {
+                        ticketQuota = GetCellNumericValue(ticketQuotaCell);
+                        
+                        // Create external reference formula to ticket quota sheet
+                        ticketQuotaFormula = $"'{overviewDir}/[{overviewFileName}]{TicketQuotaSheetName}'!" + 
+                            $"{CellReference.ConvertNumToColString(ticketQuotaCol)}{boardMemberRow + 1}";
+                    }
                 }
                 
-                // Calculate total and receivable
+                // Calculate total and receivable based on the current values
+                // (These will be calculated by Excel formulas when the report is opened)
                 double total = sponsorshipAmount;
                 double receivable = total - ticketQuota;
                 
@@ -384,7 +427,11 @@ namespace BoardMemberReportGenerator
                         Total = total,
                         ProgramQuota = programQuota,
                         TicketQuota = ticketQuota,
-                        Receivable = receivable
+                        Receivable = receivable,
+                        // Store formulas
+                        ProgramSponsorshipFormula = sponsorshipFormula,
+                        ProgramQuotaFormula = programQuotaFormula,
+                        TicketQuotaFormula = ticketQuotaFormula
                     };
                     
                     eventDataList.Add(eventData);
@@ -550,17 +597,30 @@ namespace BoardMemberReportGenerator
                 
                 // Program Sponsorship
                 ICell sponsorshipCell = row.CreateCell(2);
-                sponsorshipCell.SetCellValue(eventData.ProgramSponsorship);
+                if (eventData.ProgramSponsorshipFormula != null)
+                {
+                    // Use formula reference to overview file
+                    sponsorshipCell.SetCellFormula(eventData.ProgramSponsorshipFormula);
+                }
+                else
+                {
+                    sponsorshipCell.SetCellValue(eventData.ProgramSponsorship);
+                }
                 sponsorshipCell.CellStyle = currencyStyle;
                 
-                // Total
+                // Total - always calculated from sponsorship
                 ICell totalCell = row.CreateCell(3);
-                totalCell.SetCellValue(eventData.Total);
+                totalCell.SetCellFormula($"C{6+i}"); // Reference to sponsorship cell
                 totalCell.CellStyle = currencyStyle;
                 
                 // Program Quota
                 ICell programQuotaCell = row.CreateCell(4);
-                if (eventData.ProgramQuota > 0)
+                if (eventData.ProgramQuotaFormula != null)
+                {
+                    // Use formula reference to overview file
+                    programQuotaCell.SetCellFormula(eventData.ProgramQuotaFormula);
+                }
+                else if (eventData.ProgramQuota > 0)
                 {
                     programQuotaCell.SetCellValue(eventData.ProgramQuota);
                 }
@@ -568,15 +628,20 @@ namespace BoardMemberReportGenerator
                 
                 // Ticket Quota
                 ICell ticketQuotaCell = row.CreateCell(5);
-                if (eventData.TicketQuota > 0)
+                if (eventData.TicketQuotaFormula != null)
+                {
+                    // Use formula reference to overview file
+                    ticketQuotaCell.SetCellFormula(eventData.TicketQuotaFormula);
+                }
+                else if (eventData.TicketQuota > 0)
                 {
                     ticketQuotaCell.SetCellValue(eventData.TicketQuota);
                 }
                 ticketQuotaCell.CellStyle = currencyStyle;
                 
-                // Receivable
+                // Receivable - always calculated as total minus ticket quota
                 ICell receivableCell = row.CreateCell(6);
-                receivableCell.SetCellValue(eventData.Receivable);
+                receivableCell.SetCellFormula($"D{6+i}-F{6+i}"); // Total - Ticket Quota
                 receivableCell.CellStyle = currencyStyle;
             }
         }
@@ -674,5 +739,10 @@ namespace BoardMemberReportGenerator
         public double ProgramQuota { get; set; }
         public double TicketQuota { get; set; }
         public double Receivable { get; set; }
+        
+        // Formula references to overview file
+        public string ProgramSponsorshipFormula { get; set; }
+        public string ProgramQuotaFormula { get; set; }
+        public string TicketQuotaFormula { get; set; }
     }
 }
