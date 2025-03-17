@@ -438,10 +438,22 @@ namespace BoardMemberReportGenerator
             string boardMemberName,
             string year)
         {
+            // Remove the number and dot prefix from board member name (e.g., "1.龐董晶怡主席" -> "龐董晶怡主席")
+            string cleanedName = boardMemberName;
+            if (Regex.IsMatch(boardMemberName, @"^\d+\."))
+            {
+                // Find first dot position and take everything after it
+                int dotPosition = boardMemberName.IndexOf('.');
+                if (dotPosition >= 0)
+                {
+                    cleanedName = boardMemberName.Substring(dotPosition + 1).Trim();
+                }
+            }
+            
             // Create title row
             IRow titleRow = sheet.CreateRow(0);
             ICell titleCell = titleRow.CreateCell(0);
-            titleCell.SetCellValue($"{boardMemberName}");
+            titleCell.SetCellValue(cleanedName);
             
             // Create year row
             IRow yearRow = sheet.CreateRow(1);
@@ -459,6 +471,7 @@ namespace BoardMemberReportGenerator
             titleFont.FontHeightInPoints = 14;
             titleFont.IsBold = true;
             titleStyle.SetFont(titleFont);
+            titleStyle.Alignment = HorizontalAlignment.Center; // Center align
             titleCell.CellStyle = titleStyle;
             
             ICellStyle headerStyle = workbook.CreateCellStyle();
@@ -466,7 +479,14 @@ namespace BoardMemberReportGenerator
             headerFont.FontHeightInPoints = 12;
             headerFont.IsBold = true;
             headerStyle.SetFont(headerFont);
+            headerStyle.Alignment = HorizontalAlignment.Center; // Center align
             yearCell.CellStyle = headerStyle;
+            
+            // Merge cells for title row (columns A-G, which are 0-6 in 0-based index)
+            sheet.AddMergedRegion(new CellRangeAddress(0, 0, 0, 6));
+            
+            // Merge cells for year row (columns A-G, which are 0-6 in 0-based index)
+            sheet.AddMergedRegion(new CellRangeAddress(1, 1, 0, 6));
         }
 
         private static void CreateReportColumnHeaders(IWorkbook workbook, ISheet sheet)
