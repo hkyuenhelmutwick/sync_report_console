@@ -578,7 +578,7 @@ namespace BoardMemberReportGenerator
             ICellStyle currencyStyle = workbook.CreateCellStyle();
             currencyStyle.Alignment = HorizontalAlignment.Center;
             IDataFormat format = workbook.CreateDataFormat();
-            currencyStyle.DataFormat = format.GetFormat("#,##0");
+            currencyStyle.DataFormat = format.GetFormat("#,##0.00");
             
             // Populate event data
             for (int i = 0; i < events.Count; i++)
@@ -669,7 +669,7 @@ namespace BoardMemberReportGenerator
             ICellStyle summaryStyle = workbook.CreateCellStyle();
             summaryStyle.Alignment = HorizontalAlignment.Center;
             IDataFormat format = workbook.CreateDataFormat();
-            summaryStyle.DataFormat = format.GetFormat("#,##0");
+            summaryStyle.DataFormat = format.GetFormat("#,##0.00");
             IFont boldFont = workbook.CreateFont();
             boldFont.IsBold = true;
             summaryStyle.SetFont(boldFont);
