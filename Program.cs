@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace BoardMemberReportGenerator
 {
@@ -23,7 +24,7 @@ namespace BoardMemberReportGenerator
         private const string ProgramSponsorshipSheetName = "節目贊助";
         private const string ProgramQuotaSheetName = "節目定額";
         private const string TicketQuotaSheetName = "購券定額";
-        private const string BoardMemberIdentifierPrefix = "編號";
+        private const string BoardMemberIdentifierPrefix = "董事會成員";
 
         static void Main(string[] args)
         {
@@ -46,15 +47,11 @@ namespace BoardMemberReportGenerator
                 GenerateAllBoardMemberReports(overviewFilePath, outputDirectory, year);
 
                 Console.WriteLine("\nReport generation completed successfully!");
-                Console.WriteLine("Press any key to exit...");
-                Console.ReadKey();
             }
             catch (Exception ex)
             {
                 Logger.Error(ex, "An error occurred during report generation");
                 Console.WriteLine($"Error: {ex.Message}");
-                Console.WriteLine("Press any key to exit...");
-                Console.ReadKey();
             }
         }
 
@@ -132,9 +129,9 @@ namespace BoardMemberReportGenerator
                 Logger.Info($"Found {boardMembers.Count} board members in overview file");
 
                 // Get all events from each sheet
-                Dictionary<string, int> sponsorshipEvents = GetEvents(sponsorshipSheet, sponsorshipBoardMemberCell);
-                Dictionary<string, int> programQuotaEvents = GetEvents(programQuotaSheet, programQuotaBoardMemberCell);
-                Dictionary<string, int> ticketQuotaEvents = GetEvents(ticketQuotaSheet, ticketQuotaBoardMemberCell);
+                Dictionary<string, int> sponsorshipEvents = GetExistingEvents(sponsorshipSheet, sponsorshipBoardMemberCell, 5);
+                Dictionary<string, int> programQuotaEvents = GetExistingEvents(programQuotaSheet, programQuotaBoardMemberCell, 5);
+                Dictionary<string, int> ticketQuotaEvents = GetExistingEvents(ticketQuotaSheet, ticketQuotaBoardMemberCell, 6);
 
                 // Combine all unique events
                 HashSet<string> allEventNames = new HashSet<string>();
@@ -167,49 +164,92 @@ namespace BoardMemberReportGenerator
                 Console.WriteLine($"Generated {successCount} of {boardMembers.Count} board member reports");
             }
         }
-
+        
         private static Dictionary<string, int> GetBoardMembers(ISheet sheet, CellReference boardMemberCell)
         {
             Dictionary<string, int> boardMembers = new Dictionary<string, int>();
+            int expectedMemberCount = 20; // Expected number of board members
+            int foundMemberCount = 0;
             
-            // Start from the row after the identifier
-            int startRow = boardMemberCell.Row + 1;
+            int row = boardMemberCell.Row + 1;
+            int maxRowsToCheck = row + 20; // Check up to 20 rows to find board members
             
-            // Iterate through rows to find board members
-            for (int rowIndex = startRow; rowIndex <= sheet.LastRowNum; rowIndex++)
+            while (row < maxRowsToCheck)
             {
-                IRow row = sheet.GetRow(rowIndex);
-                if (row == null) continue;
+                IRow currentRow = sheet.GetRow(row);
+                if (currentRow == null)
+                    break;
                 
-                ICell cell = row.GetCell(boardMemberCell.Col);
-                if (cell == null || string.IsNullOrWhiteSpace(cell.ToString())) continue;
+                ICell cell = currentRow.GetCell(boardMemberCell.Col);
+                if (cell == null)
+                {
+                    row++;
+                    continue;
+                }
                 
-                string boardMemberName = cell.StringCellValue.Trim();
-                boardMembers.Add(boardMemberName, rowIndex);
+                string cellValue = cell.ToString().Trim();
+                if (string.IsNullOrEmpty(cellValue))
+                {
+                    row++;
+                    continue;
+                }
+                
+                // Check if the cell value matches the expected format: number followed by a dot
+                if (Regex.IsMatch(cellValue, @"^\d+\."))
+                {
+                    boardMembers.Add(cellValue, row);
+                    foundMemberCount++;
+                    Logger.Debug($"Found board member: {cellValue} at row {row + 1}");
+                }
+                else
+                {
+                    // If we've already found some members but this one doesn't match the pattern,
+                    // it might indicate we've reached the end of the member list
+                    if (foundMemberCount > 0)
+                    {
+                        Logger.Debug($"Possible end of board member list at row {row + 1}: '{cellValue}'");
+                        // Don't break immediately, as there might be valid members after this one
+                    }
+                }
+                
+                row++;
+            }
+            
+            // Log warning if we found significantly fewer or more members than expected
+            if (foundMemberCount < expectedMemberCount - 5)
+            {
+                Logger.Warn($"Found only {foundMemberCount} board members, expected around {expectedMemberCount}");
+            }
+            else if (foundMemberCount > expectedMemberCount + 5)
+            {
+                Logger.Warn($"Found {foundMemberCount} board members, which is more than the expected {expectedMemberCount}");
+            }
+            else
+            {
+                Logger.Info($"Found {foundMemberCount} board members");
             }
             
             return boardMembers;
         }
 
-        private static Dictionary<string, int> GetEvents(ISheet sheet, CellReference boardMemberCell)
+        private static Dictionary<string, int> GetExistingEvents(ISheet sheet, CellReference boardMemberCell, int startColumn)
         {
             Dictionary<string, int> events = new Dictionary<string, int>();
             
-            // Get the header row
             IRow headerRow = sheet.GetRow(boardMemberCell.Row);
-            if (headerRow == null) return events;
+            if (headerRow == null)
+                return events;
             
-            // Start from column after the board member column
-            int startCol = boardMemberCell.Col + 1;
-            
-            // Iterate through columns to find events
-            for (int colIndex = startCol; colIndex < headerRow.LastCellNum; colIndex++)
+            int column = startColumn;
+            while (true)
             {
-                ICell cell = headerRow.GetCell(colIndex);
-                if (cell == null || string.IsNullOrWhiteSpace(cell.ToString())) continue;
+                ICell cell = headerRow.GetCell(column);
+                if (cell == null || string.IsNullOrEmpty(cell.ToString()))
+                    break;
                 
-                string eventName = cell.StringCellValue.Trim();
-                events.Add(eventName, colIndex);
+                string eventName = cell.ToString();
+                events.Add(eventName, column);
+                column++;
             }
             
             return events;
@@ -234,28 +274,6 @@ namespace BoardMemberReportGenerator
             
             return null;
         }
-
-        // private static CellReference FindCellWithText(ISheet sheet, string text)
-        // {
-        //     for (int rowIndex = 0; rowIndex <= Math.Min(20, sheet.LastRowNum); rowIndex++) // Limit search to first 20 rows
-        //     {
-        //         IRow row = sheet.GetRow(rowIndex);
-        //         if (row == null) continue;
-                
-        //         for (int colIndex = 0; colIndex < row.LastCellNum; colIndex++)
-        //         {
-        //             ICell cell = row.GetCell(colIndex);
-        //             if (cell == null || cell.CellType != CellType.String) continue;
-                    
-        //             if (cell.StringCellValue.Contains(text))
-        //             {
-        //                 return new CellReference(rowIndex, colIndex);
-        //             }
-        //         }
-        //     }
-            
-        //     return null;
-        // }
 
         private static void ExportBoardMemberReport(
             ISheet sponsorshipSheet, ISheet programQuotaSheet, ISheet ticketQuotaSheet,
